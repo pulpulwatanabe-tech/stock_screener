@@ -3,21 +3,27 @@ import yfinance as yf
 import pandas as pd
 import ta
 import math
+import json
+import os
 
 st.set_page_config(page_title="株スクリーニングツール", page_icon="📈", layout="wide")
 st.title("📈 株スクリーニングツール")
 st.caption("RSIで割安株を自動抽出")
 
-st.sidebar.header("⚙️ スクリーニング条件")
-rsi_max = st.sidebar.slider("RSI上限（以下を抽出）", 10, 70, 30)
+# ==================
+# ウォッチリスト保存・読込
+# ==================
+SAVE_FILE = "watchlist.json"
 
-st.sidebar.header("📋 ウォッチリスト")
-default_tickers = "7203.T\n6758.T\n9984.T\n6861.T\n8306.T\n7974.T\n6902.T\n9432.T"
-tickers_input = st.sidebar.text_area(
-    "銘柄コードを1行ずつ入力（.T = 東証）",
-    value=default_tickers,
-    height=200
-)
+def load_watchlist():
+    if os.path.exists(SAVE_FILE):
+        with open(SAVE_FILE, "r") as f:
+            return json.load(f)
+    return ["7203.T", "6758.T", "9984.T", "6861.T", "8306.T", "7974.T", "6902.T", "9432.T"]
+
+def save_watchlist(tickers):
+    with open(SAVE_FILE, "w") as f:
+        json.dump(tickers, f)
 
 def safe_float(val):
     try:
@@ -28,6 +34,36 @@ def safe_float(val):
     except:
         return None
 
+# ==================
+# サイドバー
+# ==================
+st.sidebar.header("⚙️ スクリーニング条件")
+rsi_max = st.sidebar.slider("RSI上限（以下を抽出）", 10, 70, 30)
+
+st.sidebar.header("📋 ウォッチリスト")
+
+saved = load_watchlist()
+tickers_input = st.sidebar.text_area(
+    "銘柄コードを1行ずつ入力（.T = 東証）",
+    value="\n".join(saved),
+    height=200
+)
+
+col1, col2 = st.sidebar.columns(2)
+if col1.button("💾 保存"):
+    tickers_list = [t.strip() for t in tickers_input.strip().split("\n") if t.strip()]
+    save_watchlist(tickers_list)
+    st.sidebar.success("保存しました！")
+
+if col2.button("🔄 リセット"):
+    default = ["7203.T", "6758.T", "9984.T", "6861.T", "8306.T", "7974.T", "6902.T", "9432.T"]
+    save_watchlist(default)
+    st.sidebar.info("デフォルトに戻しました")
+    st.rerun()
+
+# ==================
+# メイン処理
+# ==================
 if st.button("🔍 スクリーニング実行", type="primary"):
     tickers = [t.strip() for t in tickers_input.strip().split("\n") if t.strip()]
     results = []
@@ -42,24 +78,18 @@ if st.button("🔍 スクリーニング実行", type="primary"):
             hist = stock.history(period="3mo")
             if hist.empty or len(hist) < 15:
                 continue
-
-            # NaNを除外
             hist = hist.dropna(subset=["Close", "Volume"])
             if len(hist) < 15:
                 continue
-
             hist["RSI"] = ta.momentum.RSIIndicator(hist["Close"], window=14).rsi()
             rsi_val = safe_float(hist["RSI"].iloc[-1])
             close_val = safe_float(hist["Close"].iloc[-1])
             volume_val = safe_float(hist["Volume"].iloc[-1])
-
             if rsi_val is None or close_val is None:
                 continue
-
             info = stock.info
             per = safe_float(info.get("trailingPE") or info.get("forwardPE"))
             pbr = safe_float(info.get("priceToBook"))
-
             results.append({
                 "銘柄コード": ticker,
                 "銘柄名": info.get("longName") or info.get("shortName") or ticker,
@@ -69,8 +99,7 @@ if st.button("🔍 スクリーニング実行", type="primary"):
                 "PBR": round(pbr, 2) if pbr else "N/A",
                 "出来高": int(volume_val) if volume_val else 0,
             })
-        except Exception as e:
-            st.error(f"❌ {ticker}: {e}")
+        except Exception:
             continue
 
     status.empty()
