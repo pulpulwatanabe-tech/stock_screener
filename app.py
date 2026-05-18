@@ -8,6 +8,15 @@ st.set_page_config(page_title="株スクリーニングツール", page_icon="�
 st.title("📈 株スクリーニングツール")
 st.caption("RSIで割安株を自動抽出")
 
+def safe_float(val):
+    try:
+        f = float(val)
+        if math.isnan(f):
+            return None
+        return f
+    except:
+        return None
+
 st.sidebar.header("⚙️ スクリーニング条件")
 rsi_max = st.sidebar.slider("RSI上限（以下を抽出）", 10, 70, 30)
 
@@ -18,15 +27,6 @@ tickers_input = st.sidebar.text_area(
     value=default_tickers,
     height=200
 )
-
-def safe_float(val):
-    try:
-        f = float(val)
-        if math.isnan(f):
-            return None
-        return f
-    except:
-        return None
 
 if st.button("🔍 スクリーニング実行", type="primary"):
     tickers = [t.strip() for t in tickers_input.strip().split("\n") if t.strip()]
@@ -42,24 +42,18 @@ if st.button("🔍 スクリーニング実行", type="primary"):
             hist = stock.history(period="3mo")
             if hist.empty or len(hist) < 15:
                 continue
-
-            # NaNを除外
             hist = hist.dropna(subset=["Close", "Volume"])
             if len(hist) < 15:
                 continue
-
             hist["RSI"] = ta.momentum.RSIIndicator(hist["Close"], window=14).rsi()
             rsi_val = safe_float(hist["RSI"].iloc[-1])
             close_val = safe_float(hist["Close"].iloc[-1])
             volume_val = safe_float(hist["Volume"].iloc[-1])
-
             if rsi_val is None or close_val is None:
                 continue
-
             info = stock.info
             per = safe_float(info.get("trailingPE") or info.get("forwardPE"))
             pbr = safe_float(info.get("priceToBook"))
-
             results.append({
                 "銘柄コード": ticker,
                 "銘柄名": info.get("longName") or info.get("shortName") or ticker,
@@ -69,8 +63,7 @@ if st.button("🔍 スクリーニング実行", type="primary"):
                 "PBR": round(pbr, 2) if pbr else "N/A",
                 "出来高": int(volume_val) if volume_val else 0,
             })
-        except Exception as e:
-            st.error(f"❌ {ticker}: {e}")
+        except Exception:
             continue
 
     status.empty()
