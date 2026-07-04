@@ -8,6 +8,25 @@ st.set_page_config(page_title="株スクリーニングツール", page_icon="�
 st.title("📈 株スクリーニングツール")
 st.caption("RSIで割安株を自動抽出 ＋ ゴールデンクロス予兆検知")
 
+# 折りたたみ式説明欄
+with st.expander("📖 見方を見る（クリックで開く）"):
+    st.markdown("""
+| 項目 | 意味 | 目安 |
+|---|---|---|
+| **RSI** | 売られすぎ・買われすぎを示す指標（0〜100） | 30以下が買いサイン候補 |
+| **GC予兆** | 短期移動平均線が長期線に近づいている状態 | 「約◯日後」が小さいほど近い |
+| **乖離率(%)** | 短期線と長期線の差（マイナス=短期線が下） | 0に近いほどGCが近い |
+| **縮小スピード** | 乖離率が縮まる速さ | 大きいほど勢いよく接近中 |
+| **PER** | 株価の割高・割安感（株価÷1株利益） | 業種により異なるが15〜20倍が目安 |
+| **PBR** | 資産価値と比べた割安感（株価÷1株純資産） | 1倍以下は資産より安い |
+| **出来高** | その日に取引された株数 | 多いほど注目されている |
+
+**💡 組み合わせのポイント**
+- RSI30以下 ＋ GC予兆あり → 売られすぎから反転の可能性
+- 乖離率が小さい ＋ 縮小スピードが大きい → GCが近い有力候補
+- PBR1倍以下 ＋ GC予兆あり → 割安株の反転狙い
+    """)
+
 # 日本語銘柄名辞書
 JP_NAMES = {
     "1332.T": "ニッスイ", "1605.T": "INPEX", "1721.T": "コムシスHD",
@@ -92,7 +111,6 @@ JP_NAMES = {
     "9766.T": "コナミグループ", "9983.T": "ファーストリテイリング", "9984.T": "ソフトバンクグループ",
 }
 
-# 日経225全銘柄
 NIKKEI225 = "\n".join(JP_NAMES.keys())
 
 def safe_float(val):
@@ -178,10 +196,7 @@ if st.button("🔍 スクリーニング実行", type="primary"):
             info = stock.info
             per = safe_float(info.get("trailingPE") or info.get("forwardPE"))
             pbr = safe_float(info.get("priceToBook"))
-
-            # 日本語名を辞書から取得、なければ英語名
             jp_name = JP_NAMES.get(ticker) or info.get("longName") or info.get("shortName") or ticker
-
             results.append({
                 "銘柄コード": ticker,
                 "銘柄名": jp_name,
@@ -190,6 +205,7 @@ if st.button("🔍 スクリーニング実行", type="primary"):
                 "GC予兆": gc_label,
                 "乖離率(%)": gap_pct if gap_pct else "-",
                 "縮小スピード": slope if slope else "-",
+                "推定GC日数": est_days if est_days else 999,  # バグ修正用
                 "PER": round(per, 1) if per else "N/A",
                 "PBR": round(pbr, 2) if pbr else "N/A",
                 "出来高": int(volume_val) if volume_val else 0,
@@ -207,8 +223,11 @@ if st.button("🔍 スクリーニング実行", type="primary"):
         if gc_only:
             df = df[df["GC予兆"] != "-"]
 
+        # 表示用にGC日数列を除外
+        display_cols = ["銘柄コード", "銘柄名", "株価(円)", "RSI", "GC予兆", "乖離率(%)", "縮小スピード", "PER", "PBR", "出来高"]
+
         st.subheader("📊 全銘柄一覧")
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df[display_cols], use_container_width=True)
 
         st.subheader(f"🎯 RSI {rsi_max}以下の銘柄")
         hit = df[df["RSI"] <= rsi_max]
@@ -216,12 +235,13 @@ if st.button("🔍 スクリーニング実行", type="primary"):
             st.info("条件に一致する銘柄はありませんでした。条件を緩めてみてください。")
         else:
             st.success(f"{len(hit)}銘柄が条件に一致しました！")
-            st.dataframe(hit, use_container_width=True)
+            st.dataframe(hit[display_cols], use_container_width=True)
 
+        # バグ修正：gc_days_maxで正しくフィルター
         st.subheader(f"⚡ GC予兆銘柄（{gc_days_max}営業日以内）")
-        gc_hit = df[df["GC予兆"] != "-"]
+        gc_hit = df[(df["GC予兆"] != "-") & (df["推定GC日数"] <= gc_days_max)]
         if gc_hit.empty:
-            st.info("GC予兆銘柄はありませんでした。")
+            st.info("条件に一致するGC予兆銘柄はありませんでした。日数を増やしてみてください。")
         else:
             st.success(f"{len(gc_hit)}銘柄にGC予兆あり！")
-            st.dataframe(gc_hit, use_container_width=True)
+            st.dataframe(gc_hit[display_cols], use_container_width=True)
